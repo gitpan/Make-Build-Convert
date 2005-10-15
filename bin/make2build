@@ -1,0 +1,66 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(:config no_ignore_case);
+require Make::Build::Convert;
+
+my $params = parse_switches() if @ARGV;
+convert($params);
+
+sub parse_switches {
+    my %opts;
+    GetOptions(\%opts,'h','l=i','n','v','vv','V') or $opts{h} = 1;
+    if ($opts{v} && $opts{vv}) {
+        print "Can't use both -v and -vv switches\n";
+	$opts{h} = 1;
+    }
+    if ($opts{h}) {
+        print <<"USAGE";
+Usage: /usr/local/bin/make2build [switches] [path-to-distribution]
+  -h           help screen
+  -l length    indentation length
+  -n           native ordering of build args
+  -v(v)        verbosity level
+  -V           version
+USAGE
+        exit;
+    } elsif ($opts{V}) {
+        my ($name) = $0 =~ /.*\/(.*)\..*/;
+	$name = 'make2build' unless $name;
+	print "  $name $Make::Build::Convert::VERSION\n";
+	exit;
+    }
+    return { Path             => $ARGV[0] || undef,
+             Len_Indent       => $opts{l} || undef,
+	     Use_native_order => $opts{n} || undef,
+	     Verbose          => $opts{v} ? 1 : $opts{vv} ? 2 : undef };
+}
+
+sub convert {
+    my $make = Make::Build::Convert->new(%{$_[0]});
+    $make->convert;
+}
+
+=head1 NAME
+
+make2build - frontend to Make::Build::Convert
+
+=head1 SYNOPSIS 
+
+ make2build         # In the root directory of an 
+                    # ExtUtils::MakeMaker based distribution
+		    
+ Usage: /usr/local/bin/make2build [switches] [path-to-distribution]
+   -h           help screen
+   -l length    indentation length
+   -n           native ordering of build args
+   -v(v)        verbosity level
+   -V           version
+
+=head1 AUTHOR
+
+Steven Schubiger C<< <schubiger@cpan.org> >>	    
+
+=cut

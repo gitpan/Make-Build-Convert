@@ -1,0 +1,8 @@
+--- #YAML:1.0
+name: Make-Build-Convert
+version: 0.20
+author:
+  - Steven Schubiger <schubiger@cpan.org>
+abstract: Makefile.PL to Build.PL converter
+license: perl
+generated_by: Module::Build version 0.2611, without YAML.pm

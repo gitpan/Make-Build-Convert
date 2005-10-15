@@ -1,0 +1,52 @@
+Revision history for Perl extension Make::Build::Convert.
+
+0.20 2005/10/15
+ - Conversion from script to object-oriented module.
+
+0.19 2005/10/13
+ - The obligatory usage screen and according switches have 
+   been introduced.
+ - The verbosity output has been extended to mention the 
+   overriding of arguments and arguments that are classified 
+   as unknown to the user while conversion is in charge.
+ - sort_args() is able to distinguish whether the native
+   sorting order should be preserved or the default one
+   used instead.
+ - do_verbose() outputs based on verbosity levels.
+
+0.18_02 2005/10/12
+ - Test failures have been fixed.
+ - The code chunk that cleaned args of unneeded whitespace
+   has been replaced with a ?{} construct.
+ - Commas are added to enclosing brackets.
+
+0.18 2005/09/28
+ - The conversion & interpretation of arguments which 
+   specify temporary files for removement has been implemented. 
+   [ Nathan Gray <kolibrie@graystudios.org> ]
+ - Array argument conversion has been integrated with included
+   string to elements conversion, when necessary. 
+
+0.17 2005/03/07
+ - Added recommends, build_requires, conflicts, pm_files,
+   extra_compiler_flags, sign, dist_abstract, dist_author
+   to conversion table.
+
+0.16 2005/03/06
+ - A notice is placed in the created Build.PL, indicating
+   that it was created by make2build.
+
+0.12 2004/02/23
+ - ExtUtils::MakeMaker arguments DISTNAME, VERSION, VERSION_FROM, 
+   are converted and output sorted.
+ - Default value of the license argument has been replaced 
+   with 'unknown'.
+
+0.11 2004/02/22
+ - Documentation has been largely extended.
+
+0.07 2004/02/19
+ - Redundant, unneeded code removed.
+
+0.01 2004/02/09
+ - Initial version.
