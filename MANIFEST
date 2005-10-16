@@ -1,11 +1,11 @@
-bin/make2build
 Build.PL
 Changes
 lib/Make/Build/Convert.pm
 Makefile.PL
-MANIFEST			This list of files
+MANIFEST
 META.yml
 README
+scripts/make2build
 t/00-load.t
 t/pod-coverage.t
 t/pod.t

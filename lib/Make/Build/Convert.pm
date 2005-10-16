@@ -4,13 +4,13 @@ use strict;
 use warnings; 
 
 use Carp 'croak';
-use Data::Dumper;
-use ExtUtils::MakeMaker;
+use Data::Dumper ();
+use ExtUtils::MakeMaker ();
 use File::Basename qw(basename dirname);
-use File::Slurp;
+use File::Slurp 'read_file';
 use File::Spec 'catdir';
 
-our $VERSION = '0.20';
+our $VERSION = '0.20_01';
 
 sub new {
     my ($self, %params) = (shift, @_);
@@ -55,7 +55,7 @@ sub _run_makefile {
     -e $self->{Config}{Makefile_PL}
       ? do $self->{Config}{Makefile_PL}
       : die 'No ', basename($self->{Config}{Makefile_PL}), ' found at ', 
-        $self->{Config}{Path} !~ /^\.\// && $self->{Config}{Path} =~ m{[quotemeta(/\)]} 
+        $self->{Config}{Path} !~ /^\.\//o && $self->{Config}{Path} =~ m{[quotemeta(/\)]}o 
 	  ? dirname($self->{Config}{Makefile_PL}) 
 	  : (sub { eval 'require Cwd'; croak $@ if $@; Cwd::cwd(); })->(), "\n";  
 }
@@ -64,7 +64,7 @@ sub _makefile_ok {
     my $self = shift;
     my $makefile = read_file($self->{Config}{Makefile_PL});
     die "$self->{Config}{Makefile_PL} does not consist of WriteMakefile()\n"
-      unless $makefile =~ /WriteMakefile\s*\(/;
+      unless $makefile =~ /WriteMakefile\s*\(/o;
 }
 
 sub _get_data {
@@ -110,8 +110,8 @@ sub _convert_args {
 	    next;
 	}
 	# hash conversion
-        if (ref($self->{make_args}{$arg}) eq 'HASH') {                                
-	    if (ref($self->{Data}{table}->{$arg}) eq 'HASH') {
+        if (ref $self->{make_args}{$arg} eq 'HASH') {                                
+	    if (ref $self->{Data}{table}->{$arg} eq 'HASH') {
 		# embedded structure
 		my @iterators = ();
 		my $current = $self->{Data}{table}->{$arg};
@@ -120,12 +120,12 @@ sub _convert_args {
 		while (@iterators) {
 		    my $iterator = shift @iterators;
 		    while (($current, $value) = $iterator->()) {
-			if (ref($current) eq 'HASH') {
+			if (ref $current eq 'HASH') {
 			    push @iterators, _iterator($current, $value, keys %$current);
 			} else {
 			    if (substr($current, 0, 1) eq '@') {
 				my $attr = substr($current, 1);
-			        if (ref($value) eq 'ARRAY') {
+			        if (ref $value eq 'ARRAY') {
 				    push @{$self->{build_args}}, { $attr => $value };
 				} else {
 				    push @{$self->{build_args}}, { $attr => [ split ' ', $value ] };
@@ -138,20 +138,15 @@ sub _convert_args {
 		}
 	    } else {
 		# flat structure
-		my %subargs;   
-		for my $subarg (keys %{$self->{make_args}{$arg}}) {
-		    $subargs{$subarg} = $self->{make_args}{$arg}{$subarg};
-		}
 		my %tmphash;
-		%{$tmphash{$self->{Data}{table}->{$arg}}} = %subargs;  
+		%{$tmphash{$self->{Data}{table}->{$arg}}} = 
+		  map { $_ => $self->{make_args}{$arg}{$_} } keys %{$self->{make_args}{$arg}};  
 		push @{$self->{build_args}}, \%tmphash;
 	    }
 	} elsif (ref $self->{make_args}{$arg} eq 'ARRAY') { # array conversion                           
 	    warn "Warning: $arg - array conversion not supported\n";    
-	} elsif (ref $self->{make_args}{$arg} eq '') { # one-dimensional hash values (scalars),
-	    my %tmphash;                          # don't justify as SCALARS - scalar conversion.
-	    $tmphash{$self->{Data}{table}->{$arg}} = $self->{make_args}{$arg};                     
-	    push @{$self->{build_args}}, \%tmphash;
+	} elsif (ref $self->{make_args}{$arg} eq '') { # scalar conversion
+	    push @{$self->{build_args}}, { $self->{Data}{table}->{$arg} => $self->{make_args}{$arg} };
 	} else { # unknown type
 	    warn "Warning: $arg - unknown type of argument\n";
 	}
@@ -289,11 +284,11 @@ sub _write_begin {
 
 sub _write_args {
     my $self = shift;
+    my $regex = '$arg =~ /=> \{/o';
     for my $arg (@{$self->{buildargs_dumped}}) {
-        # Hash output                       
+        # Hash/Array output                       
         if ($arg =~ /=> [\{\[]/o) {
 	    # Remove redundant parentheses
-	    my $regex = '$arg =~ /=> \{/o';
 	    $arg =~ s/^\{.*?\n(.*(?{ eval $regex ? '\}' : '\]'}))\s+\}\s+$/$1/osx;
 	    croak $@ if $@;
 	    # One element per each line
@@ -353,7 +348,7 @@ sub _add_to_manifest {
 
 sub _do_verbose {
     my $self = shift;
-    my $level = $_[-1] =~ /^\d{1}$/ ? pop : 1; 
+    my $level = $_[-1] =~ /^\d$/o ? pop : 1; 
     if (($self->{Config}{Verbose} && $level == 1) 
       || ($self->{Config}{Verbose} == 2 && $level == 2)) {
         print STDOUT @_;
@@ -512,9 +507,7 @@ is created. Takes no arguments.
 
 =head1 DATA SECTION
 
-=over 4
-
-=item B<Argument conversion>
+=head2 Argument conversion
 
 C<ExtUtils::MakeMaker> arguments followed by their C<Module::Build> equivalents. 
 Converted data structures preserve their native structure,
@@ -535,7 +528,7 @@ that is, C<HASH> -> C<HASH>, etc.
  LICENSE               license
  clean.FILES           @add_to_cleanup
 
-=item B<Default arguments>
+=head2 Default arguments
 
 C<Module::Build> default arguments may be specified as key/value pairs. 
 Arguments attached to multidimensional structures are unsupported.
@@ -548,7 +541,7 @@ Arguments attached to multidimensional structures are unsupported.
 
 Value may be either a string or of type C<SCALAR, ARRAY, HASH>.
 
-=item B<Sorting order>
+=head2 Sorting order
 
 C<Module::Build> arguments are sorted as enlisted herein. Additional arguments, 
 that don't occur herein, are lower prioritized and will be inserted in 
@@ -573,7 +566,7 @@ unsorted order after preceedingly sorted arguments.
  license
  create_makefile_pl
 
-=item B<Begin code>
+=head2 Begin code
 
 Code that preceeds converted C<Module::Build> arguments.
 
@@ -582,7 +575,7 @@ Code that preceeds converted C<Module::Build> arguments.
  my $b = Module::Build->new
  $INDENT(
 
-=item B<End code>
+=head2 End code
 
 Code that follows converted C<Module::Build> arguments.
 
@@ -590,24 +583,18 @@ Code that follows converted C<Module::Build> arguments.
 
  $b->create_build_script;
 
-=back
-
 =head1 INTERNALS
 
-=over 4
-
-=item B<co-opting C<WriteMakefile()>>
+=head2 co-opting C<WriteMakefile()>
 
 In order to convert arguments, a typeglob from C<WriteMakefile()> to an internal
 sub will be set; subsequently Makefile.PL will be executed and the
 arguments are then accessible to the internal sub.
 
-=item B<Data::Dumper>
+=head2 Data::Dumper
 
 Converted C<ExtUtils::MakeMaker> arguments will be dumped by 
 C<Data::Dumper's> C<Dump()> and are then furtherly processed.
-
-=back
 
 =head1 SEE ALSO
 

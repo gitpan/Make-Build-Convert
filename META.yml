@@ -1,8 +1,27 @@
---- #YAML:1.0
+---
 name: Make-Build-Convert
-version: 0.20
+version: 0.20_01
 author:
   - Steven Schubiger <schubiger@cpan.org>
 abstract: Makefile.PL to Build.PL converter
 license: perl
-generated_by: Module::Build version 0.2611, without YAML.pm
+resources:
+  license: http://dev.perl.org/licenses/
+requires:
+  Carp: 0
+  Cwd: 0
+  Data::Dumper: 0
+  ExtUtils::MakeMaker: 0
+  File::Basename: 0
+  File::Slurp: 0
+  File::Spec: 0
+  Getopt::Long: 0
+build_requires:
+  Test::More: 0
+  Test::Pod: 1.14
+  Test::Pod::Coverage: 1.04
+provides:
+  Make::Build::Convert:
+    file: lib/Make/Build/Convert.pm
+    version: 0.20_01
+generated_by: Module::Build version 0.2703

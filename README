@@ -1,16 +1,24 @@
-make2build
-==========
+Make::Build::Convert
+====================
 
-Create a Build.PL derived from Makefile.PL
+Makefile.PL to Build.PL converter
 
 INSTALLATION
 
-To install this module type the following:
+To install this module, type the following:
 
    perl Build.PL
    ./Build
    ./Build test
    ./Build install
+
+Or, if you're on a platform (like DOS or Windows) that doesn't like the
+"./" notation, you can do this:
+
+   perl Build.PL
+   perl Build
+   perl Build test
+   perl Build install
 
 LICENSE
 
