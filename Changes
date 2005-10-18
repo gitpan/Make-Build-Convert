@@ -1,5 +1,16 @@
 Revision history for Perl extension Make::Build::Convert.
 
+0.20_02 2005/10/18
+ - The necessary subs to write and parse the contents of a 
+   RC-file have been added.
+ - Further MakeMaker arguments to be converted includes
+   the Module::Build equivalents: PL_files, pm_files, 
+   pod_files, xs_files, include_dirs, meta_add.
+ - Usage and version output in make2build is being embedded 
+   to subs.
+ - The unintentional space preceeding filenames in MANIFEST
+   issue has been resolved.
+
 0.20 2005/10/15
  - Conversion from script to object-oriented module.
 

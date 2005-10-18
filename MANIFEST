@@ -2,7 +2,7 @@ Build.PL
 Changes
 lib/Make/Build/Convert.pm
 Makefile.PL
-MANIFEST
+MANIFEST			This list of files
 META.yml
 README
 scripts/make2build

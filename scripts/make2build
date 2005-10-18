@@ -3,39 +3,46 @@
 use strict;
 use warnings;
 
-use Getopt::Long qw(:config no_ignore_case);
 require Make::Build::Convert;
 
 my $params = parse_switches() if @ARGV;
 convert($params);
 
 sub parse_switches {
+    use Getopt::Long qw(:config no_ignore_case);
     my %opts;
-    GetOptions(\%opts,'h','l=i','n','v','vv','V') or $opts{h} = 1;
+    GetOptions(\%opts,'h','l=i','n','rc','v','vv','V') or usage();
     if ($opts{v} && $opts{vv}) {
         print "Can't use both -v and -vv switches\n";
-	$opts{h} = 1;
+	usage();
     }
-    if ($opts{h}) {
-        print <<"USAGE";
-Usage: /usr/local/bin/make2build [switches] [path-to-distribution]
+    usage()   if $opts{h};
+    version() if $opts{V};
+    return { Path             => $ARGV[0],
+             Len_Indent       => $opts{l},
+	     Use_native_order => $opts{n},
+	     Create_RC        => $opts{rc},
+	     Verbose          => $opts{v} ? 1 : $opts{vv} ? 2 : undef };
+}
+
+sub usage {
+    print <<USAGE;
+Usage: $0 [switches] [path-to-distribution]
   -h           help screen
   -l length    indentation length
   -n           native ordering of build args
+  -rc          create RC-file in homedir
   -v(v)        verbosity level
   -V           version
 USAGE
-        exit;
-    } elsif ($opts{V}) {
-        my ($name) = $0 =~ /.*\/(.*)\..*/;
-	$name = 'make2build' unless $name;
-	print "  $name $Make::Build::Convert::VERSION\n";
-	exit;
-    }
-    return { Path             => $ARGV[0] || undef,
-             Len_Indent       => $opts{l} || undef,
-	     Use_native_order => $opts{n} || undef,
-	     Verbose          => $opts{v} ? 1 : $opts{vv} ? 2 : undef };
+    exit;
+}
+
+sub version {
+    my ($name) = $0 =~ /.*\/(.*)\..*/o;
+    $name = 'make2build' unless $name;
+    print "  $name $Make::Build::Convert::VERSION\n";
+    exit;
 }
 
 sub convert {
@@ -56,6 +63,7 @@ make2build - frontend to Make::Build::Convert
    -h           help screen
    -l length    indentation length
    -n           native ordering of build args
+   -rc          create RC-file in homedir
    -v(v)        verbosity level
    -V           version
 

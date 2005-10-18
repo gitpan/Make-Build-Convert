@@ -7,16 +7,19 @@ use Carp 'croak';
 use Data::Dumper ();
 use ExtUtils::MakeMaker ();
 use File::Basename qw(basename dirname);
+use File::HomeDir 'home';
 use File::Slurp 'read_file';
-use File::Spec 'catdir';
+use File::Spec ();
 
-our $VERSION = '0.20_01';
+our $VERSION = '0.20_02';
 
 sub new {
     my ($self, %params) = (shift, @_);
     my $obj = bless { Config => { Makefile_PL      => $params{Makefile_PL}      || 'Makefile.PL',
 	                          Build_PL         => $params{Build_PL}         || 'Build.PL',
 		                  MANIFEST         => $params{MANIFEST}         || 'MANIFEST',
+				  RC               => $params{RC}               || '.make2buildrc',
+				  Create_RC        => $params{Create_RC}        || 0,
 			          Verbose          => $params{Verbose}          || 0,
 			          Use_Native_Order => $params{Use_Native_Order} || 0,
 			          Len_Indent       => $params{Len_Indent}       || 3,
@@ -25,16 +28,18 @@ sub new {
     $obj->{Config}{Makefile_PL} = basename($obj->{Config}{Makefile_PL});
     $obj->{Config}{Build_PL}    = basename($obj->{Config}{Build_PL});
     $obj->{Config}{MANIFEST}    = basename($obj->{Config}{MANIFEST});
+    $obj->{Config}{RC}          = File::Spec->catfile(home(), $obj->{Config}{RC});
     if ($params{Path}) {
-        $obj->{Config}{Makefile_PL} = catdir($params{Path}, $obj->{Config}{Makefile_PL});
-        $obj->{Config}{Build_PL}    = catdir($params{Path}, $obj->{Config}{Build_PL});
-	$obj->{Config}{MANIFEST}    = catdir($params{Path}, $obj->{Config}{MANIFEST});
+        $obj->{Config}{Makefile_PL} = File::Spec->catfile($params{Path}, $obj->{Config}{Makefile_PL});
+        $obj->{Config}{Build_PL}    = File::Spec->catfile($params{Path}, $obj->{Config}{Build_PL});
+	$obj->{Config}{MANIFEST}    = File::Spec->catfile($params{Path}, $obj->{Config}{MANIFEST});
     }
     return $obj;
 }
 
 sub convert {
     my $self = shift;
+    $self->_create_rcfile if $self->{Config}{Create_RC};
     $self->_run_makefile;
     print "Converting $self->{Config}{Makefile_PL} -> $self->{Config}{Build_PL}\n";
     $self->_get_data;
@@ -42,6 +47,21 @@ sub convert {
     $self->_dump;
     $self->_write;
     $self->_add_to_manifest if -e $self->{Config}{MANIFEST};
+}
+
+sub _create_rcfile {
+    my $self = shift;   
+    my $rcfile = $self->{Config}{RC};
+    if (-e $rcfile && !-z $rcfile && read_file($rcfile) =~ /\w+/) {
+        die "$rcfile exists\n";
+    } else {
+        my $data = $self->_parse_data('create_rc');
+        open(my $fh, ">$rcfile") or die "Can't create $rcfile: $!\n";
+	print $fh $data;
+	close($fh);
+	print "Created $rcfile\n";
+	exit;
+    }
 }
 
 sub _run_makefile {
@@ -69,16 +89,7 @@ sub _makefile_ok {
 
 sub _get_data {
     my $self = shift;
-    
-    local $/ = '__END__';
-    my @data = do {
-        local $_ = <DATA>;    #  # description       
-	split /#\s+.*\s+-\n/; #  -     
-    };
-    # superfluosity
-    shift @data;
-    chomp $data[-1]; $/ = "\n";
-    chomp $data[-1]; 
+    my @data = $self->_parse_data;
     
     $self->{Data}{table}           = { split /\s+/, shift @data };
     $self->{Data}{default_args}    = { split /\s+/, shift @data };
@@ -101,14 +112,51 @@ sub _get_data {
     }
 }
 
+sub _parse_data {
+    my $self = shift;
+    my $create_rc = 1 if (shift || 'undef') eq 'create_rc';
+    my ($data, @data_parsed);
+    my $rcfile = $self->{Config}{RC};
+    if (-e $rcfile && !-z $rcfile && read_file($rcfile) =~ /\w+/) {
+	$data = read_file($rcfile);
+    } else {
+        local $/ = '__END__';
+	$data = <DATA>;
+	chomp $data;
+    }
+    unless ($create_rc) {
+        @data_parsed = do {               #  # description       
+	    split /\#\s+.*\s+-\n/, $data; #  -     
+        };
+    }
+    unless ($create_rc) {
+        # superfluosity
+        shift @data_parsed;
+        chomp $data_parsed[-1];
+	for my $line (split /\n/, $data_parsed[0]) {
+	    next unless $line;
+	    if ($line =~ /^\#/o) {
+	        my @args = split /\s+/, $line;
+	        $self->{disabled}{substr($args[0], 1)} = 1;
+	    }
+	}
+        @data_parsed = map { s/^\#.*?\n(.*)$/$1/gos; $_ } @data_parsed;
+    }
+    return $create_rc ? $data : @data_parsed;
+}
+
 sub _convert_args {
     my $self = shift;                        
     $self->_insert_args; 
     for my $arg (keys %{$self->{make_args}}) {
+        if ($self->{disabled}{$arg}) {
+	    $self->_do_verbose("*** $arg disabled, skipping\n");
+	    next;
+	}
         unless ($self->{Data}{table}->{$arg}) {
 	    $self->_do_verbose("*** $arg unknown, skipping\n");
 	    next;
-	}
+	}     
 	# hash conversion
         if (ref $self->{make_args}{$arg} eq 'HASH') {                                
 	    if (ref $self->{Data}{table}->{$arg} eq 'HASH') {
@@ -166,7 +214,7 @@ sub _insert_args {
 	}
         $value = {} if $value eq 'HASH';
 	$value = [] if $value eq 'ARRAY';
-	$value = '' if $value eq 'SCALAR';
+	$value = '' if $value eq 'SCALAR' && $value !~ /\d+/;
 	push @insert_args, { $arg => $value };
     }
     @{$self->{build_args}} = @insert_args;
@@ -268,7 +316,7 @@ sub _write {
 sub _open_build_pl {
     my ($self, $fh) = @_;
     open($fh, ">$self->{Config}{Build_PL}") or 
-      die "Couldn't open $self->{Config}{Build_PL}: $!\n";
+      die "Can't open $self->{Config}{Build_PL}: $!\n";
     return select $fh;
 }
 
@@ -333,16 +381,16 @@ sub _close_build_pl {
 
 sub _add_to_manifest {
     my $self = shift;
-    open(my $fh, "<$self->{Config}{MANIFEST}") or die "Could not open $self->{Config}{MANIFEST}: $!\n";
+    open(my $fh, "<$self->{Config}{MANIFEST}") or die "Can't open $self->{Config}{MANIFEST}: $!\n";
     my @manifest = <$fh>;
     close($fh);
     my $build_pl = basename($self->{Config}{Build_PL});
     unless (grep { $_ =~ /^$build_pl\s+$/ } @manifest) {
         unshift @manifest, "$build_pl\n";
-        open($fh, ">$self->{Config}{MANIFEST}") or die "Could not open $self->{Config}{MANIFEST}: $!\n";
-        print $fh sort "@manifest";
+        open($fh, ">$self->{Config}{MANIFEST}") or die "Can't open $self->{Config}{MANIFEST}: $!\n";
+        print $fh sort @manifest;
         close($fh);
-	print "Added $self->{Config}{Build_PL} to $self->{Config}{MANIFEST}\n";
+	print "Added to $self->{Config}{MANIFEST}: $self->{Config}{Build_PL}\n";
     }
 }
 
@@ -366,10 +414,15 @@ AUTHOR                dist_author
 VERSION               dist_version
 VERSION_FROM          dist_version_from
 PREREQ_PM             requires
+PL_FILES              PL_files
 PM                    pm_files
+MAN1PODS              pod_files
+XS                    xs_files
+INC                   include_dirs
 INSTALLDIRS           installdirs
 DESTDIR               destdir
 CCFLAGS               extra_compiler_flags
+EXTRA_META            meta_add
 SIGN                  sign
 LICENSE               license
 clean.FILES           @add_to_cleanup
@@ -380,6 +433,7 @@ recommends	      HASH
 build_requires        HASH
 conflicts	      HASH
 license               unknown
+create_readme         1
 create_makefile_pl    passthrough
  
 # sorting order 
@@ -394,13 +448,19 @@ requires
 recommends
 build_requires
 conflicts
+PL_files
 pm_files
+pod_files
+xs_files
+include_dirs
 installdirs
 destdir
 add_to_cleanup
 extra_compiler_flags
+meta_add
 sign
 license
+create_readme
 create_makefile_pl
 
 # begin code 
@@ -468,6 +528,15 @@ Filename of the Build script. Default: F<Build.PL>
 
 Filename of the MANIFEST file. Default: F<MANIFEST>
 
+=item RC
+
+Filename of the RC file. Default: F<.make2buildrc>
+
+=item Create_RC
+
+Create a RC file in the homedir of the current user.
+Default: 0
+
 =item Verbose
 
 Verbose mode. If set to 1, overridden defaults and skipped arguments
@@ -520,10 +589,15 @@ that is, C<HASH> -> C<HASH>, etc.
  VERSION               dist_version
  VERSION_FROM          dist_version_from
  PREREQ_PM             requires
+ PL_FILES              PL_files
  PM                    pm_files
+ MAN1PODS              pod_files
+ XS                    xs_files
+ INC                   include_dirs
  INSTALLDIRS           installdirs
  DESTDIR               destdir
  CCFLAGS               extra_compiler_flags
+ EXTRA_META            meta_add
  SIGN                  sign
  LICENSE               license
  clean.FILES           @add_to_cleanup
@@ -537,6 +611,7 @@ Arguments attached to multidimensional structures are unsupported.
  build_requires        HASH
  conflicts	       HASH
  license               unknown
+ create_readme         1
  create_makefile_pl    passthrough
 
 Value may be either a string or of type C<SCALAR, ARRAY, HASH>.
@@ -557,13 +632,19 @@ unsorted order after preceedingly sorted arguments.
  recommends
  build_requires
  conflicts
+ PL_files
  pm_files
+ pod_files
+ xs_files
+ include_dirs
  installdirs
  destdir
  add_to_cleanup
  extra_compiler_flags
+ meta_add
  sign
  license
+ create_readme
  create_makefile_pl
 
 =head2 Begin code
