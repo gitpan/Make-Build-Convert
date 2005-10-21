@@ -1,5 +1,16 @@
 Revision history for Perl extension Make::Build::Convert.
 
+0.20_03 2005/10/21
+ - Statically parsing the Makefile.PL as the method to
+   "receive" MakeMaker arguments, supersedes the previous 
+   known "do 'Makefile.PL'" evaluation.
+ - _parse_args() has been added that acts as de-facto 
+   replacement of _run_makefile() . Scalar, array and hash
+   arguments will be extracted by parsing the Makefile
+   string; code chunks are processed in a separate branch.
+ - A warning is emitted if WriteMakefile() takes indirect
+   arguments via a hash.
+
 0.20_02 2005/10/18
  - The necessary subs to write and parse the contents of a 
    RC-file have been added.

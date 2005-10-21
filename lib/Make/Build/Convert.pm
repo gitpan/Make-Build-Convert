@@ -11,7 +11,7 @@ use File::HomeDir 'home';
 use File::Slurp 'read_file';
 use File::Spec ();
 
-our $VERSION = '0.20_02';
+our $VERSION = '0.20_03';
 
 sub new {
     my ($self, %params) = (shift, @_);
@@ -20,6 +20,7 @@ sub new {
 		                  MANIFEST         => $params{MANIFEST}         || 'MANIFEST',
 				  RC               => $params{RC}               || '.make2buildrc',
 				  Create_RC        => $params{Create_RC}        || 0,
+				  Exec_Makefile    => $params{Exec_Makefile}    || 0,
 			          Verbose          => $params{Verbose}          || 0,
 			          Use_Native_Order => $params{Use_Native_Order} || 0,
 			          Len_Indent       => $params{Len_Indent}       || 3,
@@ -40,9 +41,15 @@ sub new {
 sub convert {
     my $self = shift;
     $self->_create_rcfile if $self->{Config}{Create_RC};
-    $self->_run_makefile;
+    $self->_makefile_ok;
     print "Converting $self->{Config}{Makefile_PL} -> $self->{Config}{Build_PL}\n";
     $self->_get_data;
+    if ($self->{Config}{Exec_Makefile}) {
+        print "Executing $self->{Config}{Makefile_PL}\n";
+        $self->_run_makefile;
+    } else {
+        $self->_parse_args;
+    }
     $self->_convert_args;
     $self->_dump;
     $self->_write;
@@ -66,7 +73,6 @@ sub _create_rcfile {
 
 sub _run_makefile {
     my $self = shift;
-    $self->_makefile_ok;
     no warnings 'redefine';
     *ExtUtils::MakeMaker::WriteMakefile = sub {
       %{$self->{make_args}} = @{$self->{make_args_arr}} = @_;
@@ -85,6 +91,8 @@ sub _makefile_ok {
     my $makefile = read_file($self->{Config}{Makefile_PL});
     die "$self->{Config}{Makefile_PL} does not consist of WriteMakefile()\n"
       unless $makefile =~ /WriteMakefile\s*\(/o;
+    die "Indirect arguments to WriteMakefile() via hash are not supported\n" 
+      if $makefile =~ /WriteMakefile\(\s*%(\w+.*)\s*\)/os && !$self->{Config}{Exec_Makefile};
 }
 
 sub _get_data {
@@ -135,14 +143,76 @@ sub _parse_data {
         chomp $data_parsed[-1];
 	for my $line (split /\n/, $data_parsed[0]) {
 	    next unless $line;
-	    if ($line =~ /^\#/o) {
+	    if ($line =~ /^#/o) {
 	        my @args = split /\s+/, $line;
 	        $self->{disabled}{substr($args[0], 1)} = 1;
 	    }
 	}
-        @data_parsed = map { s/^\#.*?\n(.*)$/$1/gos; $_ } @data_parsed;
+        @data_parsed = map { s/^#.*?\n(.*)$/$1/gos; $_ } @data_parsed;
     }
     return $create_rc ? $data : @data_parsed;
+}
+
+sub _parse_args {
+    my $self = shift;
+    my (@histargs, %makeargs);
+    my $parse = read_file($self->{Config}{Makefile_PL});
+    $parse =~ s/(.*)WriteMakefile\(\n?(.*?)\);(.*)/$2/os;
+    my $makecode_begin = $1;
+    my $makecode_end   = $3;
+    $makecode_begin =~ s/\s*([#\w]+.*;)\s*/$1/os;
+    $makecode_end   =~ s/\s*([#\w]+.*;)\s*/$1/os;
+    $self->{make_code}{begin} = $makecode_begin unless (($makecode_begin =~ tr/;/;/) == 1);
+    $self->{make_code}{end}   = $makecode_end;
+    while ($parse) {
+        if ($parse =~ s/^\s*['"]*(\w+)['"]*\s+=>\s+['"]*([-\$\w]+.*?)['"]*(?:,\n|,\s+#\s+\w+.*?\n)//os) {
+            my $value = $2;
+	    my $arg = $1;
+            $makeargs{$arg} = $value;
+	    push @histargs, $arg;
+	} elsif ($parse =~ s/^\s*['"]*(\w+)['"]*\s+=>\s+\{\s*(.*?)\s*\},\n//os) {
+	    my $values = $2;
+	    my $arg = $1;
+	    my @values = split /,\ /, $values;
+	    local $/ = ','; 
+	    chomp @values;
+	    my @values_new;
+	    for my $value (@values) {
+	        my @values = split /\s+=>\s+/, $value;
+		push @values_new, @values;
+	    }
+	    @values = map { tr/'//d; $_ } @values_new;
+	    $makeargs{$arg} = { @values };
+	    push @histargs, $arg;
+	} elsif ($parse =~ s/^\s*['"]*(\w+)['"]*\s+=>\s+\[\s*(.*?)\s*\],\n//os) {
+	    my $values = $2;
+	    my $arg = $1;
+	    $values =~ tr/[',]//d;
+	    $makeargs{$arg} = [ split /\s+/, $values ];
+	    push @histargs, $arg;
+	} else {
+	    my $makecode;
+            if ($parse =~ /\?\s+\(/os) {
+		$parse =~ s/^\s+(.*?\:\s+\(.*\)\s*),\n//os;
+		$makecode = $1;
+            } elsif ($parse =~ /^\s*[$@%]\w+\s*/os) {
+                $parse =~ s/^\s*([$@%]\w+)\s*//os;
+                $makecode = $1;
+            } else {
+                $parse =~ s/^\s+(.*?)[,]\s*//os;
+                $makecode = $1;
+            }
+	    SUBST: for my $make (keys %{$self->{Data}{table}}) {
+		if ($makecode =~ /\b$make\b/s) {
+		    $makecode =~ s/$make/$self->{Data}{table}{$make}/os;
+		    last SUBST;
+		}
+            }
+	    pop @histargs until $self->{Data}{table}{$histargs[-1]};
+	    $self->{make_code}{$self->{Data}{table}{$histargs[-1]}} = $makecode;
+	}
+    }
+    %{$self->{make_args}} = %makeargs;
 }
 
 sub _convert_args {
@@ -157,7 +227,6 @@ sub _convert_args {
 	    $self->_do_verbose("*** $arg unknown, skipping\n");
 	    next;
 	}     
-	# hash conversion
         if (ref $self->{make_args}{$arg} eq 'HASH') {                                
 	    if (ref $self->{Data}{table}->{$arg} eq 'HASH') {
 		# embedded structure
@@ -191,9 +260,9 @@ sub _convert_args {
 		  map { $_ => $self->{make_args}{$arg}{$_} } keys %{$self->{make_args}{$arg}};  
 		push @{$self->{build_args}}, \%tmphash;
 	    }
-	} elsif (ref $self->{make_args}{$arg} eq 'ARRAY') { # array conversion                           
-	    warn "Warning: $arg - array conversion not supported\n";    
-	} elsif (ref $self->{make_args}{$arg} eq '') { # scalar conversion
+	} elsif (ref $self->{make_args}{$arg} eq 'ARRAY') {                         
+	    push @{$self->{build_args}}, { $self->{Data}{table}->{$arg} => $self->{make_args}{$arg} };
+	} elsif (ref $self->{make_args}{$arg} eq '') {
 	    push @{$self->{build_args}}, { $self->{Data}{table}->{$arg} => $self->{make_args}{$arg} };
 	} else { # unknown type
 	    warn "Warning: $arg - unknown type of argument\n";
@@ -323,7 +392,8 @@ sub _open_build_pl {
 sub _write_begin {
     my $self = shift;  
     my $INDENT = substr($self->{INDENT}, 0, length($self->{INDENT})-1);
-    $self->{Data}{begin} =~ s/(\$[A-Z]+)/$1/eeg;
+    $self->_subst_makecode('begin');
+    $self->{Data}{begin} =~ s/(\$INDENT)/$1/eeg;
     $self->_do_verbose(basename($self->{Config}{Build_PL}), " written:\n", 2);
     $self->_do_verbose($self->{Data}{begin}, 2);  
     print '# Note: this file has been initially created by ', __PACKAGE__, " $VERSION\n";
@@ -332,19 +402,21 @@ sub _write_begin {
 
 sub _write_args {
     my $self = shift;
+    my $lastarg;
     my $regex = '$arg =~ /=> \{/o';
     for my $arg (@{$self->{buildargs_dumped}}) {
         # Hash/Array output                       
         if ($arg =~ /=> [\{\[]/o) {
 	    # Remove redundant parentheses
-	    $arg =~ s/^\{.*?\n(.*(?{ eval $regex ? '\}' : '\]'}))\s+\}\s+$/$1/osx;
+	    $arg =~ s/^\{.*?\n(.*(?{eval $regex ? '\}' : '\]'}))\s+\}\s+$/$1/osx;
 	    croak $@ if $@;
 	    # One element per each line
 	    my @lines;        
             push @lines, $1 while $arg =~ s/^(.*?\n)(.*)$/$2/os;         
 	    # Gather whitespace up to hash key in order
 	    # to recreate native Dump() indentation. 
-	    my ($whitespace) = $lines[0] =~ /^(\s+)\w+/o;
+	    my ($whitespace) = $lines[0] =~ /^(\s+)(\w+)/o;
+	    $lastarg = $2;
 	    my $shorten = length $whitespace;
             for my $line (@lines) {
 	        chomp $line;
@@ -352,6 +424,8 @@ sub _write_args {
 	        $line =~ s/^\s{$shorten}(.*)$/$1/o;
 		# Add comma where appropriate (version numbers, parentheses)          
 	        $line .= ',' if $line =~ /[\d+\}\]]$/o;
+		$line =~ s/'(\d)'/$1/;
+		$arg =~ s/'(\$\w+)'/$1/;
 		$self->_do_verbose("$self->{INDENT}$line\n", 2);
 		print "$self->{INDENT}$line\n";
             }
@@ -359,8 +433,15 @@ sub _write_args {
 	    chomp $arg;
 	    # Remove redundant parentheses
             $arg =~ s/^\{\s+(.*?)\s+\}$/$1/os;
+	    $arg =~ s/'(\d)'/$1/;
+	    $arg =~ s/'(\$\w+)'/$1/;
+	    ($lastarg) = $arg =~ /^\s*(\w+)/;
 	    $self->_do_verbose("$self->{INDENT}$arg,\n", 2);
 	    print "$self->{INDENT}$arg,\n";
+	}
+	if ($self->{make_code}{$lastarg}) {
+	    $self->_do_verbose("$self->{INDENT}$self->{make_code}{$lastarg},\n", 2);
+	    print "$self->{INDENT}$self->{make_code}{$lastarg},\n";
 	}
     }
 }
@@ -368,7 +449,8 @@ sub _write_args {
 sub _write_end {
     my $self = shift;
     my $INDENT = substr($self->{INDENT}, 0, length($self->{INDENT})-1);
-    $self->{Data}{end} =~ s/(\$[A-Z]+)/$1/eeg;
+    $self->_subst_makecode('end');
+    $self->{Data}{end} =~ s/(\$INDENT)/$1/eeg;
     $self->_do_verbose($self->{Data}{end}, 2);
     print $self->{Data}{end};
 }
@@ -378,6 +460,13 @@ sub _close_build_pl {
     close($fh);
     select($selold); 
 }
+
+sub _subst_makecode {
+    my ($self, $section) = @_;
+    $self->{make_code}{$section}
+      ? $self->{Data}{$section} =~ s/\$MAKECODE/$self->{make_code}{$section}/s
+      : $self->{Data}{$section} =~ s/\n\$MAKECODE\n//os;
+}    
 
 sub _add_to_manifest {
     my $self = shift;
@@ -468,6 +557,8 @@ create_makefile_pl
 
 use Module::Build;
 
+$MAKECODE
+
 my $build = Module::Build->new
 $INDENT(
 # end code 
@@ -475,6 +566,8 @@ $INDENT(
 $INDENT);
   
 $build->create_build_script;
+
+$MAKECODE
 
 __END__
 
@@ -535,6 +628,11 @@ Filename of the RC file. Default: F<.make2buildrc>
 =item Create_RC
 
 Create a RC file in the homedir of the current user.
+Default: 0
+
+=item Exec_Makefile
+
+"Execute" the Makefile.PL via do 'Makefile.PL'.
 Default: 0
 
 =item Verbose
@@ -651,6 +749,8 @@ unsorted order after preceedingly sorted arguments.
 
 Code that preceeds converted C<Module::Build> arguments.
 
+ $MAKECODE
+
  use Module::Build;
 
  my $b = Module::Build->new
@@ -663,13 +763,19 @@ Code that follows converted C<Module::Build> arguments.
  $INDENT);
 
  $b->create_build_script;
+ 
+ $MAKECODE
 
 =head1 INTERNALS
 
 =head2 co-opting C<WriteMakefile()>
 
-In order to convert arguments, a typeglob from C<WriteMakefile()> to an internal
-sub will be set; subsequently Makefile.PL will be executed and the
+This behavior is no longer the default way to receive WriteMakefile()'s
+arguments; the Makefile.PL is now statically parsed unless one forces
+the co-opting of WriteMakefile().
+
+In order to convert arguments, a typeglob from C<WriteMakefile()> to an 
+internal sub will be set; subsequently Makefile.PL will be executed and the
 arguments are then accessible to the internal sub.
 
 =head2 Data::Dumper

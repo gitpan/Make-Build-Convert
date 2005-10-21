@@ -11,7 +11,7 @@ convert($params);
 sub parse_switches {
     use Getopt::Long qw(:config no_ignore_case);
     my %opts;
-    GetOptions(\%opts,'h','l=i','n','rc','v','vv','V') or usage();
+    GetOptions(\%opts,'h','l=i','n','rc','v','vv','V','x') or usage();
     if ($opts{v} && $opts{vv}) {
         print "Can't use both -v and -vv switches\n";
 	usage();
@@ -22,7 +22,8 @@ sub parse_switches {
              Len_Indent       => $opts{l},
 	     Use_native_order => $opts{n},
 	     Create_RC        => $opts{rc},
-	     Verbose          => $opts{v} ? 1 : $opts{vv} ? 2 : undef };
+	     Verbose          => $opts{v} ? 1 : $opts{vv} ? 2 : undef,
+	     Exec_Makefile    => $opts{x} };
 }
 
 sub usage {
@@ -34,6 +35,7 @@ Usage: $0 [switches] [path-to-distribution]
   -rc          create RC-file in homedir
   -v(v)        verbosity level
   -V           version
+  -x           "execute" Makefile.PL
 USAGE
     exit;
 }
@@ -66,6 +68,7 @@ make2build - frontend to Make::Build::Convert
    -rc          create RC-file in homedir
    -v(v)        verbosity level
    -V           version
+   -x           "execute" Makefile.PL
 
 =head1 AUTHOR
 
