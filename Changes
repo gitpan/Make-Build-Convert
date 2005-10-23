@@ -1,5 +1,12 @@
 Revision history for Perl extension Make::Build::Convert.
 
+0.20_04 Sun Oct 23 14:51:30 CEST 2005
+ - _compose_header() rearranges the placement of the shebang,
+   line, comments, use/require statements should they appear
+   within the Makefile.PL in order to fit in nicely with the 
+   default Build.PL code. The use/require ExtUtils::MakeMaker
+   statement will be removed as it becomes unneeded.
+
 0.20_03 2005/10/21
  - Statically parsing the Makefile.PL as the method to
    "receive" MakeMaker arguments, supersedes the previous 

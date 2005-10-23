@@ -16,6 +16,7 @@ my $build = Module::Build->new
 		 File::Slurp => 0,
 		 File::Spec => 0,
 		 Getopt::Long => 0,
+		 IO::File => 0,
                },
    build_requires => { 
                        Test::More => 0,
