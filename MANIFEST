@@ -1,5 +1,6 @@
 Build.PL
 Changes
+INSTALL
 lib/Make/Build/Convert.pm
 Makefile.PL
 MANIFEST			This list of files

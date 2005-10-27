@@ -1,5 +1,13 @@
 Revision history for Perl extension Make::Build::Convert.
 
+0.20_05 Thu Oct 27 20:36:47 CEST 2005
+ - Polished some of the parsing code up to the extent that
+   it is able to recognize and process standalone comments properly.
+ - A trailing comment of a MakeMaker argument entry is appended
+   to the Module::Build equivalent for all type variants.
+ - Some unnecessary newlines are removed while composing
+   the header of a Build.PL. 
+
 0.20_04 Sun Oct 23 14:51:30 CEST 2005
  - _compose_header() rearranges the placement of the shebang,
    line, comments, use/require statements should they appear

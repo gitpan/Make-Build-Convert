@@ -13,6 +13,7 @@ my $build = Module::Build->new
 		 Data::Dumper => 0,
 		 ExtUtils::MakeMaker => 0,
 		 File::Basename => 0,
+		 File::HomeDir => 0,
 		 File::Slurp => 0,
 		 File::Spec => 0,
 		 Getopt::Long => 0,
@@ -25,6 +26,7 @@ my $build = Module::Build->new
 		     },
    script_files => [ 'scripts/make2build' ],
    license => 'perl',
+   create_readme => 1,
    create_makefile_pl => 'passthrough',
   );
   

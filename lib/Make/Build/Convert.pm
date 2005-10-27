@@ -3,34 +3,37 @@ package Make::Build::Convert;
 use strict;
 use warnings; 
 
-use Carp 'croak';
+use Carp ();
+use Cwd ();
 use Data::Dumper ();
 use ExtUtils::MakeMaker ();
-use File::Basename qw(basename dirname);
-use File::HomeDir 'home';
-use File::Slurp 'read_file';
+use File::Basename ();
+use File::HomeDir ();
+use File::Slurp ();
 use File::Spec ();
 use IO::File ();
 
-our $VERSION = '0.20_04';
+our $VERSION = '0.20_05';
 
 sub new {
     my ($self, %params) = (shift, @_);
-    my $obj = bless { Config => { Makefile_PL      => $params{Makefile_PL}      || 'Makefile.PL',
+    my $obj = bless { Config => { Path             => $params{Path}             || '',
+                                  Makefile_PL      => $params{Makefile_PL}      || 'Makefile.PL',
 	                          Build_PL         => $params{Build_PL}         || 'Build.PL',
 		                  MANIFEST         => $params{MANIFEST}         || 'MANIFEST',
 				  RC               => $params{RC}               || '.make2buildrc',
 				  Create_RC        => $params{Create_RC}        || 0,
 				  Exec_Makefile    => $params{Exec_Makefile}    || 0,
 			          Verbose          => $params{Verbose}          || 0,
+				  Debug            => $params{Debug}            || 0,
 			          Use_Native_Order => $params{Use_Native_Order} || 0,
 			          Len_Indent       => $params{Len_Indent}       || 3,
 			          DD_Indent        => $params{DD_Indent}        || 2,
 	               	          DD_Sortkeys      => $params{DD_Sortkeys}      || 1 }}, $self;
-    $obj->{Config}{Makefile_PL} = basename($obj->{Config}{Makefile_PL});
-    $obj->{Config}{Build_PL}    = basename($obj->{Config}{Build_PL});
-    $obj->{Config}{MANIFEST}    = basename($obj->{Config}{MANIFEST});
-    $obj->{Config}{RC}          = File::Spec->catfile(home(), $obj->{Config}{RC});
+    $obj->{Config}{Makefile_PL} = File::Basename::basename($obj->{Config}{Makefile_PL});
+    $obj->{Config}{Build_PL}    = File::Basename::basename($obj->{Config}{Build_PL});
+    $obj->{Config}{MANIFEST}    = File::Basename::basename($obj->{Config}{MANIFEST});
+    $obj->{Config}{RC}          = File::Spec->catfile(File::HomeDir::home(), $obj->{Config}{RC});
     if ($params{Path}) {
         $obj->{Config}{Makefile_PL} = File::Spec->catfile($params{Path}, $obj->{Config}{Makefile_PL});
         $obj->{Config}{Build_PL}    = File::Spec->catfile($params{Path}, $obj->{Config}{Build_PL});
@@ -60,7 +63,7 @@ sub convert {
 sub _create_rcfile {
     my $self = shift;   
     my $rcfile = $self->{Config}{RC};
-    if (-e $rcfile && !-z $rcfile && read_file($rcfile) =~ /\w+/o) {
+    if (-e $rcfile && !-z $rcfile && File::Slurp::read_file($rcfile) =~ /\w+/o) {
         die "$rcfile exists\n";
     } else {
         my $data = $self->_parse_data('create_rc');
@@ -74,7 +77,15 @@ sub _create_rcfile {
 
 sub _makefile_ok {
     my $self = shift;
-    my $makefile = read_file($self->{Config}{Makefile_PL});
+    my $makefile;
+    if (-e $self->{Config}{Makefile_PL}) {
+        $makefile = File::Slurp::read_file($self->{Config}{Makefile_PL});
+    } else {
+        die 'No ', File::Basename::basename($self->{Config}{Makefile_PL}), ' found at ', 
+          $self->{Config}{Path} !~ /^\.\//o && $self->{Config}{Path} =~ m{[quotemeta([/\])]}o 
+	    ? File::Basename::dirname($self->{Config}{Makefile_PL}) 
+	    : Cwd::cwd(), "\n";
+    }
     die "$self->{Config}{Makefile_PL} does not consist of WriteMakefile()\n"
       unless $makefile =~ /WriteMakefile\s*\(/os;
     die "Indirect arguments to WriteMakefile() via hash are not supported\n" 
@@ -87,13 +98,7 @@ sub _run_makefile {
     *ExtUtils::MakeMaker::WriteMakefile = sub {
       %{$self->{make_args}} = @{$self->{make_args_arr}} = @_;
     };
-    no warnings 'uninitialized';
-    -e $self->{Config}{Makefile_PL}
-      ? do $self->{Config}{Makefile_PL}
-      : die 'No ', basename($self->{Config}{Makefile_PL}), ' found at ', 
-        $self->{Config}{Path} !~ /^\.\//o && $self->{Config}{Path} =~ m{[quotemeta(/\)]}o 
-	  ? dirname($self->{Config}{Makefile_PL}) 
-	  : (sub { eval 'require Cwd'; croak $@ if $@; Cwd::cwd(); })->(), "\n";  
+    do $self->{Config}{Makefile_PL};
 }
 
 sub _get_data {
@@ -126,8 +131,8 @@ sub _parse_data {
     my $create_rc = 1 if (shift || 'undef') eq 'create_rc';
     my ($data, @data_parsed);
     my $rcfile = $self->{Config}{RC};
-    if (-e $rcfile && !-z $rcfile && read_file($rcfile) =~ /\w+/o) {
-	$data = read_file($rcfile);
+    if (-e $rcfile && !-z $rcfile && File::Slurp::read_file($rcfile) =~ /\w+/o) {
+	$data = File::Slurp::read_file($rcfile);
     } else {
         local $/ = '__END__';
 	$data = <DATA>;
@@ -157,23 +162,38 @@ sub _parse_data {
 sub _parse_makefile {
     my $self = shift;
     my (@histargs, %makeargs);
-    my $parse = read_file($self->{Config}{Makefile_PL});
-    $parse =~ s/(.*)WriteMakefile\(\s*?(.*?)\);(.*)/$2/os;
+    my $makefile = File::Slurp::read_file($self->{Config}{Makefile_PL});
+    $makefile =~ s/(.*)WriteMakefile\(\s*?(.*?)\);(.*)/$2/os;
     my $makecode_begin = $1;
     my $makecode_end   = $3;
     $makecode_begin =~ s/\s*([#\w]+.*;)\s*/$1/os;
     $makecode_end   =~ s/\s*([#\w]+.*;)\s*/$1/os;
     $self->{make_code}{begin} = $makecode_begin unless (($makecode_begin =~ tr/;/;/) == 1);
     $self->{make_code}{end}   = $makecode_end;
-    while ($parse) {
-        if ($parse =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+['"]?([-\$\w]+.*?)['"]?(?:,\n|,\s+#\s+\w+.*?\n)//o) {
-            my $value = $2;
-	    my $arg = $1;
+    $self->_debug("Entering parse\n");
+    while ($makefile) {
+        if ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+(?![\[\{])['"]?([-\$\w]?.*?)['"]?(?:,\n|,(\s+#\s+\w+.*?)\n)//os) {
+	    my ($arg, $value, $comment) = ($1,$2,$3);
+	    $comment ||= '';
             $makeargs{$arg} = $value;
 	    push @histargs, $arg;
-	} elsif ($parse =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\{\s*(.*?)\s*\},\n//os) {
-	    my $values = $2;
-	    my $arg = $1;
+            if (defined($comment) && defined($self->{Data}{table}{$arg})) {
+                $self->{make_comments}{$self->{Data}{table}{$arg}} = $comment;
+	    }
+	    $self->_debug("Found scalar:\narg: $arg\nvalue: $value\ncomment: $comment\nmake args:\n$makefile\n\n");
+	} elsif ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\[\s*(.*?)\s*\](?:,\n|,(\s+#\s+\w+.*?)\n)//os) {
+	    my ($arg, $values, $comment) = ($1,$2,$3);
+	    $comment ||= '';
+	    $values =~ tr/[',]//d;
+	    $makeargs{$arg} = [ split /\s+/, $values ];
+	    push @histargs, $arg;
+	    if (defined($comment) && defined($self->{Data}{table}{$arg})) {
+                $self->{make_comments}{$self->{Data}{table}{$arg}} = $comment;
+	    }
+	    $self->_debug("Found array:\narg: $arg\nvalues: $values\ncomment: $comment\nmake args:\n$makefile\n\n");
+	} elsif ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\{\s*(.*?)\s*\}(?:,\n|,(\s+#\s+\w+.*?)\n)//os) {
+	    my ($arg, $values, $comment) = ($1,$2,$3);
+	    $comment ||= '';
 	    my @values = split /,\ /, $values;
 	    local $/ = ','; 
 	    chomp(@values);
@@ -185,20 +205,20 @@ sub _parse_makefile {
 	    @values = map { tr/'//d; $_ } @values_new;
 	    $makeargs{$arg} = { @values };
 	    push @histargs, $arg;
-	} elsif ($parse =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\[\s*(.*?)\s*\],\n//os) {
-	    my $values = $2;
-	    my $arg = $1;
-	    $values =~ tr/[',]//d;
-	    $makeargs{$arg} = [ split /\s+/, $values ];
-	    push @histargs, $arg;
+            if (defined($comment) && defined($self->{Data}{table}{$arg})) {
+                $self->{make_comments}{$self->{Data}{table}{$arg}} = $comment;
+	    }
+	    $self->_debug("Found hash:\narg: $arg\nvalues: $values\ncomment: $comment\nmake args:\n$makefile\n\n");
 	} else {
 	    my $makecode;
-	    if ($parse =~ s/^\s+(.*?\:\s+\(.*\)\s*),\n//os) {
+	    if ($makefile =~ s/^\s+(.*?\:\s+\(.*\)\s*),\n//os) {
 		$makecode = $1;
-	    } elsif ($parse =~ s/^\s*([$@%]\w+)\s*//o) {
+	    } elsif ($makefile =~ s/^\s*([$@%]\w+)\s*//os) {
                 $makecode = $1;
-            } else {
-                $parse =~ s/^\s+(.*?)[,]\s*//o;
+            } elsif ($makefile =~ s/^\s*(#.*?)\n//os) {
+	        $makecode = $1;
+	    } else {
+                $makefile =~ s/^\s+(.*?)[,]\s*//os;
                 $makecode = $1;
             }
 	    SUBST: for my $make (keys %{$self->{Data}{table}}) {
@@ -208,9 +228,11 @@ sub _parse_makefile {
 		}
             }
 	    pop @histargs until $self->{Data}{table}{$histargs[-1]};
-	    $self->{make_code}{$self->{Data}{table}{$histargs[-1]}} = $makecode;
+	    push @{$self->{make_code}{$self->{Data}{table}{$histargs[-1]}}}, $makecode;
+	    $self->_debug("Found code:\ncode: $makecode\nmake args:\n$makefile\n\n");
 	}
     }
+    $self->_debug("Leaving parse\n");
     %{$self->{make_args}} = %makeargs;
 }
 
@@ -386,28 +408,30 @@ sub _write {
 
 sub _compose_header {
     my $self = shift;
-    my ($insert_begin, $insert_begin2);
+    my ($insert_comments, $insert_statements);
     my $note = '# Note: this file has been initially created by '.__PACKAGE__." $VERSION";
     if (defined($self->{make_code}{begin})) {
         $self->_do_verbose("Removing ExtUtils::MakeMaker as dependency\n");
-        $self->{make_code}{begin} =~ s/\s*(?:require|use)\s+ExtUtils::MakeMaker\s*;//o;
-        $insert_begin ||= '';
-        while ($self->{make_code}{begin} =~ s/^(#[!]?.*?\n)(.*)$/$2/os) {
-            $insert_begin .= $1;
+        $self->{make_code}{begin} =~ s/[ ]*(?:require|use)\s+ExtUtils::MakeMaker\s*;//os;
+        $insert_comments ||= '';
+        while ($self->{make_code}{begin} =~ s/^(#[!]?.*?\n)//os) {
+            $insert_comments .= $1;
         }
-	chomp($insert_begin);
-        $insert_begin2 ||= ''; 
-        while ($self->{make_code}{begin} =~ /(?:require|use)\s+.*?;/o) {
-            $self->{make_code}{begin} =~ s/^(.*;)\s*$//s;
-	    $insert_begin2 .= "$1\n";
+	chomp($insert_comments);
+        $insert_statements ||= '';
+        while ($self->{make_code}{begin} =~ /(?:require|use)\s+.*?;/os) {
+            $self->{make_code}{begin} =~ s/^\n?(.*?;)//os;
+	    $insert_statements .= "$1\n";
         }
-        1 while $self->{make_code}{begin} =~ s/^\n(.*)$/$2/os;
+	chomp($insert_statements);
+	1 while $self->{make_code}{begin} =~ s/^\n//os;
+	chomp($self->{make_code}{begin}) while $self->{make_code}{begin} =~ /\n$/os;
     }
-    $self->{Data}{begin} = $insert_begin || $insert_begin2
-      ? ($insert_begin  =~ /\w/o ? "$insert_begin\n" : '') . "$note\n" . 
-        ($insert_begin2 =~ /\w/o ? "\n" : '') . "$insert_begin2\n" .
+    $self->{Data}{begin} = $insert_comments || $insert_statements
+      ? ($insert_comments  =~ /\w/o ? "$insert_comments\n" : '') . "$note\n" . 
+        ($insert_statements =~ /\w/o ? "\n$insert_statements\n" : '') .
         $self->{Data}{begin}
-      : "$note\n\n" . $self->{Data}{begin};
+      : "$note\n" . $self->{Data}{begin};
 }
 
 sub _write_begin {
@@ -415,51 +439,61 @@ sub _write_begin {
     my $INDENT = substr($self->{INDENT}, 0, length($self->{INDENT}) - 1);
     $self->_subst_makecode('begin');
     $self->{Data}{begin} =~ s/(\$INDENT)/$1/eego;
-    $self->_do_verbose(basename($self->{Config}{Build_PL}), " written:\n", 2);
+    $self->_do_verbose(File::Basename::basename($self->{Config}{Build_PL}), " written:\n", 2);
     $self->_do_verbose($self->{Data}{begin}, 2);
     print $self->{Data}{begin};
 }
 
 sub _write_args {
     my $self = shift;
-    my $lastarg;
-    my $regex = '$arg =~ /=> \{/o';
-    for my $arg (@{$self->{buildargs_dumped}}) {
+    my $arg;
+    my $regex = '$chunk =~ /=> \{/o';
+    for my $chunk (@{$self->{buildargs_dumped}}) {
         # Hash/Array output                       
-        if ($arg =~ /=> [\{\[]/o) {
+        if ($chunk =~ /=> [\{\[]/o) {
 	    # Remove redundant parentheses
-	    $arg =~ s/^\{.*?\n(.*(?{eval $regex ? '\}' : '\]'}))\s+\}\s+$/$1/os;
-	    croak $@ if $@;
+	    $chunk =~ s/^\{.*?\n(.*(?{eval $regex ? '\}' : '\]'}))\s+\}\s+$/$1/os;
+	    Carp::croak $@ if $@;
 	    # One element per each line
 	    my @lines;        
-            push @lines, $1 while $arg =~ s/^(.*?\n)(.*)$/$2/os;         
+            push @lines, $1 while $chunk =~ s/^(.*?\n)(.*)$/$2/os;         
 	    # Gather whitespace up to hash key in order
-	    # to recreate native Dump() indentation. 
+	    # to recreate native Dump() indentation.
 	    my ($whitespace) = $lines[0] =~ /^(\s+)(\w+)/o;
-	    $lastarg = $2;
+	    $arg = $2;
 	    my $shorten = length($whitespace);
-            for my $line (@lines) {
+            for (my $i = 0; $i < @lines; $i++) {
+	        my $line = $lines[$i];
 	        chomp($line);
 		# Remove additional whitespace
 	        $line =~ s/^\s{$shorten}(.*)$/$1/o;
 		# Add comma where appropriate (version numbers, parentheses)          
 	        $line .= ',' if $line =~ /[\d+\}\]]$/o;
 		$line =~ s/'(\d|\$\w+)'/$1/go;
-		$self->_do_verbose("$self->{INDENT}$line\n", 2);
-		print "$self->{INDENT}$line\n";
+		my $output = "$self->{INDENT}$line";
+		$output .= ($i == $#lines && defined($self->{make_comments}{$arg}))
+		  ? "$self->{make_comments}{$arg}\n" : "\n"; 
+		$self->_do_verbose($output, 2);
+		print $output;
             }
 	} else { # Scalar output                                                 
-	    chomp($arg);
+	    chomp($chunk);
 	    # Remove redundant parentheses
-            $arg =~ s/^\{\s+(.*?)\s+\}$/$1/os;
-	    $arg =~ s/'(\d|\$\w+)'/$1/gos;
-	    ($lastarg) = $arg =~ /^\s*(\w+)/os;
-	    $self->_do_verbose("$self->{INDENT}$arg,\n", 2);
-	    print "$self->{INDENT}$arg,\n";
+            $chunk =~ s/^\{\s+(.*?)\s+\}$/$1/os;
+	    $chunk =~ s/'(\d|\$\w+)'/$1/gos;
+	    ($arg) = $chunk =~ /^\s*(\w+)/os;
+	    my $output = "$self->{INDENT}$chunk,";
+	    $output .= $self->{make_comments}{$arg} if defined($self->{make_comments}{$arg});
+	    $self->_do_verbose("$output\n", 2);
+	    print "$output\n";
 	}
-	if ($self->{make_code}{$lastarg}) {
-	    $self->_do_verbose("$self->{INDENT}$self->{make_code}{$lastarg},\n", 2);
-	    print "$self->{INDENT}$self->{make_code}{$lastarg},\n";
+	no warnings 'uninitialized';
+	if ($self->{make_code}{$arg}) {
+	    for my $line (@{$self->{make_code}{$arg}}) {
+	        $line .= ',' unless $line =~ /^#/o;
+    	        $self->_do_verbose("$self->{INDENT}$line\n", 2);
+	        print "$self->{INDENT}$line\n";
+	    }
 	}
     }
 }
@@ -487,7 +521,7 @@ sub _add_to_manifest {
       or die "Can't open $self->{Config}{MANIFEST}: $!\n";
     my @manifest = <$fh>;
     $fh->close;
-    my $build_pl = basename($self->{Config}{Build_PL});
+    my $build_pl = File::Basename::basename($self->{Config}{Build_PL});
     unless (grep { $_ =~ /^$build_pl\s+$/o } @manifest) {
         unshift @manifest, "$build_pl\n";
         $fh = IO::File->new(">$self->{Config}{MANIFEST}") 
@@ -507,6 +541,12 @@ sub _do_verbose {
     }
 }
 
+sub _debug {
+    my $self = shift;
+    warn @_ if $self->{Config}{Debug};
+}
+
+1;
 __DATA__
  
 # argument conversion 
@@ -615,7 +655,7 @@ intended to ease the transition process.
 
 =head2 new
 
-Optional arguments:
+Possible arguments:
 
 =over 4
 
@@ -646,7 +686,7 @@ Default: 0
 
 =item Exec_Makefile
 
-"Execute" the Makefile.PL via do 'Makefile.PL'.
+Execute the Makefile.PL via do 'Makefile.PL'.
 Default: 0
 
 =item Verbose
@@ -655,6 +695,11 @@ Verbose mode. If set to 1, overridden defaults and skipped arguments
 are printed while converting; if set to 2, output of C<Verbose = 1> and
 created Build script will be printed. May be set via the make2build 
 switches C<-v> (mode 1) and C<-vv> (mode 2). Default: 0
+
+=item Debug
+
+Rudimentary debug facility for examining the parsing process.
+Default: 0
 
 =item Use_Native_Order
 
@@ -764,7 +809,7 @@ unsorted order after preceedingly sorted arguments.
 Code that preceeds converted C<Module::Build> arguments.
 
  use Module::Build;
- 
+
  $MAKECODE
 
  my $b = Module::Build->new
@@ -777,7 +822,7 @@ Code that follows converted C<Module::Build> arguments.
  $INDENT);
 
  $b->create_build_script;
- 
+
  $MAKECODE
 
 =head1 INTERNALS
@@ -804,6 +849,13 @@ L<http://www.makemaker.org/wiki/index.cgi?ModuleBuildConversionGuide>
 
 =head1 AUTHOR
 
-Steven Schubiger C<< <schubiger@cpan.org> >>	    
+Steven Schubiger, schubiger@cpan.org
+
+=head1 LICENSE
+
+This program is free software; you may redistribute it and/or 
+modify it under the same terms as Perl itself.
+
+See L<http://www.perl.com/perl/misc/Artistic.html>	    
 
 =cut
