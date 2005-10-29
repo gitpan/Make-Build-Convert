@@ -13,7 +13,7 @@ use File::Slurp ();
 use File::Spec ();
 use IO::File ();
 
-our $VERSION = '0.20_05';
+our $VERSION = '0.20_06';
 
 sub new {
     my ($self, %params) = (shift, @_);
@@ -63,7 +63,7 @@ sub convert {
 sub _create_rcfile {
     my $self = shift;   
     my $rcfile = $self->{Config}{RC};
-    if (-e $rcfile && !-z $rcfile && File::Slurp::read_file($rcfile) =~ /\w+/o) {
+    if (-e $rcfile && !-z $rcfile && File::Slurp::read_file($rcfile) =~ /\w+/) {
         die "$rcfile exists\n";
     } else {
         my $data = $self->_parse_data('create_rc');
@@ -82,14 +82,14 @@ sub _makefile_ok {
         $makefile = File::Slurp::read_file($self->{Config}{Makefile_PL});
     } else {
         die 'No ', File::Basename::basename($self->{Config}{Makefile_PL}), ' found at ', 
-          $self->{Config}{Path} !~ /^\.\//o && $self->{Config}{Path} =~ m{[quotemeta([/\])]}o 
+          $self->{Config}{Path} !~ /^\.\// && $self->{Config}{Path} =~ m{[quotemeta([/\])]} 
 	    ? File::Basename::dirname($self->{Config}{Makefile_PL}) 
 	    : Cwd::cwd(), "\n";
     }
     die "$self->{Config}{Makefile_PL} does not consist of WriteMakefile()\n"
-      unless $makefile =~ /WriteMakefile\s*\(/os;
+      unless $makefile =~ /WriteMakefile\s*\(/s;
     die "Indirect arguments to WriteMakefile() via hash are not supported\n" 
-      if $makefile =~ /WriteMakefile\(\s*%\w+.*\s*\)/os && !$self->{Config}{Exec_Makefile};
+      if $makefile =~ /WriteMakefile\(\s*%\w+.*\s*\)/s && !$self->{Config}{Exec_Makefile};
 }
 
 sub _run_makefile {
@@ -131,7 +131,7 @@ sub _parse_data {
     my $create_rc = 1 if (shift || 'undef') eq 'create_rc';
     my ($data, @data_parsed);
     my $rcfile = $self->{Config}{RC};
-    if (-e $rcfile && !-z $rcfile && File::Slurp::read_file($rcfile) =~ /\w+/o) {
+    if (-e $rcfile && !-z $rcfile && File::Slurp::read_file($rcfile) =~ /\w+/) {
 	$data = File::Slurp::read_file($rcfile);
     } else {
         local $/ = '__END__';
@@ -149,12 +149,12 @@ sub _parse_data {
         chomp($data_parsed[-1]);
 	for my $line (split /\n/, $data_parsed[0]) {
 	    next unless $line;
-	    if ($line =~ /^#/o) {
+	    if ($line =~ /^#/) {
 	        my ($arg) = split /\s+/, $line;
 	        $self->{disabled}{substr($arg,1)} = 1;
 	    }
 	}
-        @data_parsed = map { s/^#.*?\n(.*)$/$1/gos; $_ } @data_parsed;
+        @data_parsed = map { s/^#.*?\n(.*)$/$1/gs; $_ } @data_parsed;
     }
     return $create_rc ? $data : @data_parsed;
 }
@@ -163,16 +163,16 @@ sub _parse_makefile {
     my $self = shift;
     my (@histargs, %makeargs);
     my $makefile = File::Slurp::read_file($self->{Config}{Makefile_PL});
-    $makefile =~ s/(.*)WriteMakefile\(\s*?(.*?)\);(.*)/$2/os;
+    $makefile =~ s/(.*)WriteMakefile\(\s*?(.*?)\);(.*)/$2/s;
     my $makecode_begin = $1;
     my $makecode_end   = $3;
-    $makecode_begin =~ s/\s*([#\w]+.*;)\s*/$1/os;
-    $makecode_end   =~ s/\s*([#\w]+.*;)\s*/$1/os;
+    $makecode_begin =~ s/\s*([#\w]+.*;)\s*/$1/s;
+    $makecode_end   =~ s/\s*([#\w]+.*;)\s*/$1/s;
     $self->{make_code}{begin} = $makecode_begin unless (($makecode_begin =~ tr/;/;/) == 1);
     $self->{make_code}{end}   = $makecode_end;
     $self->_debug("Entering parse\n");
     while ($makefile) {
-        if ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+(?![\[\{])['"]?([-\$\w]?.*?)['"]?(?:,\n|,(\s+#\s+\w+.*?)\n)//os) {
+        if ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+(?![\[\{])['"]?([-\$\w]?.*?)['"]?(?:,\n|,(\s+#\s+\w+.*?)\n)//) {
 	    my ($arg, $value, $comment) = ($1,$2,$3);
 	    $comment ||= '';
             $makeargs{$arg} = $value;
@@ -181,7 +181,7 @@ sub _parse_makefile {
                 $self->{make_comments}{$self->{Data}{table}{$arg}} = $comment;
 	    }
 	    $self->_debug("Found scalar:\narg: $arg\nvalue: $value\ncomment: $comment\nmake args:\n$makefile\n\n");
-	} elsif ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\[\s*(.*?)\s*\](?:,\n|,(\s+#\s+\w+.*?)\n)//os) {
+	} elsif ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\[\s*(.*?)\s*\](?:,\n|,(\s+#\s+\w+.*?)\n)//s) {
 	    my ($arg, $values, $comment) = ($1,$2,$3);
 	    $comment ||= '';
 	    $values =~ tr/[',]//d;
@@ -191,7 +191,7 @@ sub _parse_makefile {
                 $self->{make_comments}{$self->{Data}{table}{$arg}} = $comment;
 	    }
 	    $self->_debug("Found array:\narg: $arg\nvalues: $values\ncomment: $comment\nmake args:\n$makefile\n\n");
-	} elsif ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\{\s*(.*?)\s*\}(?:,\n|,(\s+#\s+\w+.*?)\n)//os) {
+	} elsif ($makefile =~ s/^\s*['"]?(\w+)['"]?\s+=>\s+\{\s*(.*?)\s*\}(?:,\n|,(\s+#\s+\w+.*?)\n)//s) {
 	    my ($arg, $values, $comment) = ($1,$2,$3);
 	    $comment ||= '';
 	    my @values = split /,\ /, $values;
@@ -211,19 +211,19 @@ sub _parse_makefile {
 	    $self->_debug("Found hash:\narg: $arg\nvalues: $values\ncomment: $comment\nmake args:\n$makefile\n\n");
 	} else {
 	    my $makecode;
-	    if ($makefile =~ s/^\s+(.*?\:\s+\(.*\)\s*),\n//os) {
+	    if ($makefile =~ s/^\s+(.*?\:\s+\(.*\)\s*),\n//s) {
 		$makecode = $1;
-	    } elsif ($makefile =~ s/^\s*([$@%]\w+)\s*//os) {
+	    } elsif ($makefile =~ s/^\s*([$@%]\w+)\s*//) {
                 $makecode = $1;
-            } elsif ($makefile =~ s/^\s*(#.*?)\n//os) {
+            } elsif ($makefile =~ s/^\s*(#.*?)\n//) {
 	        $makecode = $1;
 	    } else {
-                $makefile =~ s/^\s+(.*?)[,]\s*//os;
+                $makefile =~ s/^\s+(.*?)[,]\s*//;
                 $makecode = $1;
             }
 	    SUBST: for my $make (keys %{$self->{Data}{table}}) {
 		if ($makecode =~ /\b$make\b/s) {
-		    $makecode =~ s/$make/$self->{Data}{table}{$make}/o;
+		    $makecode =~ s/$make/$self->{Data}{table}{$make}/;
 		    last SUBST;
 		}
             }
@@ -286,7 +286,7 @@ sub _convert {
 	} elsif (ref $self->{make_args}{$arg} eq '') {
 	    push @{$self->{build_args}}, { $self->{Data}{table}->{$arg} => $self->{make_args}{$arg} };
 	} else { # unknown type
-	    warn "Warning: $arg - unknown type of argument\n";
+	    warn "$arg - unknown type of argument\n";
 	}
     }
     $self->_sort_args if @{$self->{Data}{sort_order}};
@@ -304,7 +304,7 @@ sub _insert_args {
 	}
         $value = {} if $value eq 'HASH';
 	$value = [] if $value eq 'ARRAY';
-	$value = '' if $value eq 'SCALAR' && $value !~ /\d+/o;
+	$value = '' if $value eq 'SCALAR' && $value !~ /\d+/;
 	push @insert_args, { $arg => $value };
     }
     @{$self->{build_args}} = @insert_args;
@@ -412,24 +412,24 @@ sub _compose_header {
     my $note = '# Note: this file has been initially created by '.__PACKAGE__." $VERSION";
     if (defined($self->{make_code}{begin})) {
         $self->_do_verbose("Removing ExtUtils::MakeMaker as dependency\n");
-        $self->{make_code}{begin} =~ s/[ ]*(?:require|use)\s+ExtUtils::MakeMaker\s*;//os;
+        $self->{make_code}{begin} =~ s/[ ]*(?:require|use)\s+ExtUtils::MakeMaker\s*;//;
         $insert_comments ||= '';
-        while ($self->{make_code}{begin} =~ s/^(#[!]?.*?\n)//os) {
+        while ($self->{make_code}{begin} =~ s/^(#[!]?.*?\n)//) {
             $insert_comments .= $1;
         }
 	chomp($insert_comments);
         $insert_statements ||= '';
-        while ($self->{make_code}{begin} =~ /(?:require|use)\s+.*?;/os) {
-            $self->{make_code}{begin} =~ s/^\n?(.*?;)//os;
+        while ($self->{make_code}{begin} =~ /(?:require|use)\s+.*?;/) {
+            $self->{make_code}{begin} =~ s/^\n?(.*?;)//s;
 	    $insert_statements .= "$1\n";
         }
 	chomp($insert_statements);
-	1 while $self->{make_code}{begin} =~ s/^\n//os;
-	chomp($self->{make_code}{begin}) while $self->{make_code}{begin} =~ /\n$/os;
+	1 while $self->{make_code}{begin} =~ s/^\n//;
+	chomp($self->{make_code}{begin}) while $self->{make_code}{begin} =~ /\n$/s;
     }
     $self->{Data}{begin} = $insert_comments || $insert_statements
-      ? ($insert_comments  =~ /\w/o ? "$insert_comments\n" : '') . "$note\n" . 
-        ($insert_statements =~ /\w/o ? "\n$insert_statements\n" : '') .
+      ? ($insert_comments  =~ /\w/ ? "$insert_comments\n" : '') . "$note\n" . 
+        ($insert_statements =~ /\w/ ? "\n$insert_statements\n" : '') .
         $self->{Data}{begin}
       : "$note\n" . $self->{Data}{begin};
 }
@@ -447,19 +447,19 @@ sub _write_begin {
 sub _write_args {
     my $self = shift;
     my $arg;
-    my $regex = '$chunk =~ /=> \{/o';
+    my $regex = '$chunk =~ /=> \{/';
     for my $chunk (@{$self->{buildargs_dumped}}) {
         # Hash/Array output                       
-        if ($chunk =~ /=> [\{\[]/o) {
+        if ($chunk =~ /=> [\{\[]/) {
 	    # Remove redundant parentheses
 	    $chunk =~ s/^\{.*?\n(.*(?{eval $regex ? '\}' : '\]'}))\s+\}\s+$/$1/os;
 	    Carp::croak $@ if $@;
 	    # One element per each line
 	    my @lines;        
-            push @lines, $1 while $chunk =~ s/^(.*?\n)(.*)$/$2/os;         
+            push @lines, $1 while $chunk =~ s/^(.*?\n)(.*)$/$2/s;         
 	    # Gather whitespace up to hash key in order
 	    # to recreate native Dump() indentation.
-	    my ($whitespace) = $lines[0] =~ /^(\s+)(\w+)/o;
+	    my ($whitespace) = $lines[0] =~ /^(\s+)(\w+)/;
 	    $arg = $2;
 	    my $shorten = length($whitespace);
             for (my $i = 0; $i < @lines; $i++) {
@@ -468,8 +468,8 @@ sub _write_args {
 		# Remove additional whitespace
 	        $line =~ s/^\s{$shorten}(.*)$/$1/o;
 		# Add comma where appropriate (version numbers, parentheses)          
-	        $line .= ',' if $line =~ /[\d+\}\]]$/o;
-		$line =~ s/'(\d|\$\w+)'/$1/go;
+	        $line .= ',' if $line =~ /[\d+\}\]]$/;
+		$line =~ s/'(\d|\$\w+)'/$1/g;
 		my $output = "$self->{INDENT}$line";
 		$output .= ($i == $#lines && defined($self->{make_comments}{$arg}))
 		  ? "$self->{make_comments}{$arg}\n" : "\n"; 
@@ -479,9 +479,9 @@ sub _write_args {
 	} else { # Scalar output                                                 
 	    chomp($chunk);
 	    # Remove redundant parentheses
-            $chunk =~ s/^\{\s+(.*?)\s+\}$/$1/os;
-	    $chunk =~ s/'(\d|\$\w+)'/$1/gos;
-	    ($arg) = $chunk =~ /^\s*(\w+)/os;
+            $chunk =~ s/^\{\s+(.*?)\s+\}$/$1/s;
+	    $chunk =~ s/'(\d|\$\w+)'/$1/g;
+	    ($arg) = $chunk =~ /^\s*(\w+)/;
 	    my $output = "$self->{INDENT}$chunk,";
 	    $output .= $self->{make_comments}{$arg} if defined($self->{make_comments}{$arg});
 	    $self->_do_verbose("$output\n", 2);
@@ -490,7 +490,7 @@ sub _write_args {
 	no warnings 'uninitialized';
 	if ($self->{make_code}{$arg}) {
 	    for my $line (@{$self->{make_code}{$arg}}) {
-	        $line .= ',' unless $line =~ /^#/o;
+	        $line .= ',' unless $line =~ /^#/;
     	        $self->_do_verbose("$self->{INDENT}$line\n", 2);
 	        print "$self->{INDENT}$line\n";
 	    }
@@ -511,7 +511,7 @@ sub _subst_makecode {
     my ($self, $section) = @_;
     $self->{make_code}{$section} ||= '';
     $self->{make_code}{$section} =~ /\w/
-      ? $self->{Data}{$section} =~ s/\$MAKECODE/$self->{make_code}{$section}/
+      ? $self->{Data}{$section} =~ s/\$MAKECODE/$self->{make_code}{$section}/o
       : $self->{Data}{$section} =~ s/\n\$MAKECODE\n//o;
 }    
 
@@ -534,7 +534,7 @@ sub _add_to_manifest {
 
 sub _do_verbose {
     my $self = shift;
-    my $level = $_[-1] =~ /^\d$/o ? pop : 1; 
+    my $level = $_[-1] =~ /^\d$/ ? pop : 1; 
     if (($self->{Config}{Verbose} && $level == 1) 
       || ($self->{Config}{Verbose} == 2 && $level == 2)) {
         print STDOUT @_;
@@ -633,10 +633,10 @@ Make::Build::Convert - Makefile.PL to Build.PL converter
 
  require Make::Build::Convert; 
 
- my %params = ( Path => '/path/to/perl/distribution',
-                Verbose => 2,
-		Use_Native_Order => 1,
-                Len_Indent => 4 );
+ my %params = (Path => '/path/to/perl/distribution',
+               Verbose => 2,
+	       Use_Native_Order => 1,
+               Len_Indent => 4);
 
  my $make = Make::Build::Convert->new(%params);                            
  $make->convert;
