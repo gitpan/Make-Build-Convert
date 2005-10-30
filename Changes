@@ -1,5 +1,10 @@
 Revision history for Perl extension Make::Build::Convert.
 
+0.20_07 Sun Oct 30 18:10:09 CET 2005
+ - To avoid that global scalars are "polluted" by running 
+   "do 'Makefile.PL'", they're copied by _save_globals() and 
+   restored by _restore_globals().
+
 0.20_05 Thu Oct 27 20:36:47 CEST 2005
  - Polished some of the parsing code up to the extent that
    it is able to recognize and process standalone comments properly.

@@ -13,7 +13,7 @@ use File::Slurp ();
 use File::Spec ();
 use IO::File ();
 
-our $VERSION = '0.20_06';
+our $VERSION = '0.20_07';
 
 sub new {
     my ($self, %params) = (shift, @_);
@@ -98,8 +98,33 @@ sub _run_makefile {
     *ExtUtils::MakeMaker::WriteMakefile = sub {
       %{$self->{make_args}} = @{$self->{make_args_arr}} = @_;
     };
+    # beware, do '' overwrites existing globals
+    $self->_save_globals;
     do $self->{Config}{Makefile_PL};
+    $self->_restore_globals;
 }
+
+sub _save_globals {
+    my $self = shift;
+    my @vars;
+    my $makefile = File::Slurp::read_file($self->{Config}{Makefile_PL});
+    $makefile =~ s/.*WriteMakefile\(\s*?(.*?)\);.*/$1/s;
+    while ($makefile =~ s/\$(\w+)//) {
+        push @vars, $1 if defined(${$1});
+    }
+    no strict 'refs';
+    for my $var (@vars) {
+        ${__PACKAGE__.'::globals'}{$var} = ${$var};
+    }
+}
+
+sub _restore_globals {
+    my $self = shift;
+    no strict 'refs';
+    while (my ($var, $value) = each %{__PACKAGE__.'::globals'}) {
+        ${__PACKAGE__.'::'.$var} = $value;
+    }
+}    
 
 sub _get_data {
     my $self = shift;
@@ -467,6 +492,8 @@ sub _write_args {
 	        chomp($line);
 		# Remove additional whitespace
 	        $line =~ s/^\s{$shorten}(.*)$/$1/o;
+		# Quote sub hash keys
+		$line =~ s/^(\s+)([\w:]+)/$1'$2'/ if $line =~ /^\s+/;
 		# Add comma where appropriate (version numbers, parentheses)          
 	        $line .= ',' if $line =~ /[\d+\}\]]$/;
 		$line =~ s/'(\d|\$\w+)'/$1/g;

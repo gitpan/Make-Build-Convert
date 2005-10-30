@@ -1,6 +1,6 @@
 ---
 name: Make-Build-Convert
-version: 0.20_06
+version: 0.20_07
 author:
   - Steven Schubiger <schubiger@cpan.org>
 abstract: Makefile.PL to Build.PL converter
@@ -25,5 +25,5 @@ build_requires:
 provides:
   Make::Build::Convert:
     file: lib/Make/Build/Convert.pm
-    version: 0.20_06
+    version: 0.20_07
 generated_by: Module::Build version 0.2703
